@@ -240,13 +240,28 @@ def send_via_resend(subject: str, body: str, text_body: str) -> None:
 
 
 def gmail_service():
-    """Return an authorized Gmail API service, opening a browser only on first use."""
+    """Return an authorized Gmail API service for local or GitHub Actions use."""
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
 
     scopes = ["https://www.googleapis.com/auth/gmail.send"]
+    client_id = os.getenv("GMAIL_CLIENT_ID")
+    client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+    refresh_token = os.getenv("GMAIL_REFRESH_TOKEN")
+    if client_id and client_secret and refresh_token:
+        credentials = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes,
+        )
+        credentials.refresh(Request())
+        return build("gmail", "v1", credentials=credentials, cache_discovery=False)
+
     credentials_file = ROOT / os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")
     token_file = ROOT / os.getenv("GMAIL_TOKEN_FILE", "data/gmail-token.json")
     if not credentials_file.is_file():

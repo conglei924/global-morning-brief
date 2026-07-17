@@ -22,14 +22,13 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python morning_brief.py
         env:
-          MAIL_TRANSPORT: smtp
+          MAIL_TRANSPORT: gmail_oauth
           MAIL_FORMAT: plain
-          SMTP_HOST: smtp.qq.com
-          SMTP_PORT: '465'
-          SMTP_USERNAME: 465257249@qq.com
-          SMTP_PASSWORD: ${{ secrets.QQ_SMTP_AUTH_CODE }}
-          EMAIL_FROM: 465257249@qq.com
+          EMAIL_FROM: conglei824@gmail.com
           EMAIL_TO: 465257249@qq.com
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_MODEL: openai/gpt-4o
           REQUIRE_AI_SUMMARY: 'true'

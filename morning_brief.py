@@ -14,7 +14,7 @@ import urllib.request
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Iterable
@@ -64,7 +64,7 @@ def load_sources() -> list[dict[str, str]]:
 def fetch_articles(sources: Iterable[dict[str, str]]) -> tuple[list[Article], list[str]]:
     articles: list[Article] = []
     failures: list[str] = []
-    cutoff = datetime.utcnow() - timedelta(hours=30)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=30)
     for source in sources:
         feed = feedparser.parse(source["url"])
         if feed.bozo and not feed.entries:
@@ -113,21 +113,46 @@ def select_articles(articles: list[Article], maximum: int) -> list[Article]:
 
 def chinese_summary(articles: list[Article]) -> str | None:
     key, model = os.getenv("OPENAI_API_KEY"), os.getenv("OPENAI_MODEL")
-    if not key or not model:
-        return None
-    from openai import OpenAI
-
     material = "\n".join(
         f"[{index}] 来源：{a.source}\n标题：{a.title}\n摘要：{a.description}\n链接：{a.url}"
         for index, a in enumerate(articles, 1)
     )
     prompt = """你是严谨的国际新闻编辑。仅根据下列新闻标题和摘要，写一份中文全球晨报。
 要求：不补充材料中没有的事实；将相近报道合并为一个议题；只选最重要的 6–10 个议题；每条用 1–2 句中文解释“发生了什么、为什么重要”，不要复述英文标题；若报道相互矛盾要明确写出。开头给出不超过 3 句的“今日要点”。每条末尾标出支撑它的 [编号]，但正文不要放 URL。使用纯文本，不用 Markdown 标记。"""
+    if key and model:
+        try:
+            from openai import OpenAI
+
+            response = OpenAI(api_key=key).responses.create(model=model, input=f"{prompt}\n\n素材：\n{material}")
+            return response.output_text.strip()
+        except Exception as exc:
+            print(f"OpenAI summary unavailable: {exc}", file=sys.stderr)
+
+    github_token = os.getenv("GITHUB_TOKEN")
+    if not github_token:
+        return None
+    payload = json.dumps({
+        "model": os.getenv("GITHUB_MODEL", "openai/gpt-4o"),
+        "messages": [{"role": "user", "content": f"{prompt}\n\n素材：\n{material}"}],
+        "temperature": 0.2,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        "https://models.github.ai/inference/chat/completions",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {github_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "global-morning-brief/1.0",
+        },
+    )
     try:
-        response = OpenAI(api_key=key).responses.create(model=model, input=f"{prompt}\n\n素材：\n{material}")
-        return response.output_text.strip()
-    except Exception as exc:  # A scheduled briefing should still reach the reader.
-        print(f"OpenAI summary unavailable: {exc}", file=sys.stderr)
+        with urllib.request.urlopen(request, timeout=60) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        return result["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        print(f"GitHub Models summary unavailable: {exc}", file=sys.stderr)
         return None
 
 

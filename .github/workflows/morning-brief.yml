@@ -2,8 +2,13 @@ name: Global morning brief
 
 on:
   schedule:
-    - cron: '30 0 * * *' # 北京时间每天 08:30
+    # 08:30 Asia/Shanghai = 00:30 UTC. GitHub Actions schedules run in UTC.
+    - cron: '30 0 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  models: read
 
 jobs:
   send:
@@ -17,12 +22,15 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python morning_brief.py
         env:
-          MAIL_TRANSPORT: resend
+          MAIL_TRANSPORT: smtp
           MAIL_FORMAT: plain
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          SMTP_HOST: smtp.qq.com
+          SMTP_PORT: '465'
+          SMTP_USERNAME: 465257249@qq.com
+          SMTP_PASSWORD: ${{ secrets.QQ_SMTP_AUTH_CODE }}
+          EMAIL_FROM: 465257249@qq.com
+          EMAIL_TO: 465257249@qq.com
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_MODEL: openai/gpt-4o
           REQUIRE_AI_SUMMARY: 'true'
           MAX_ARTICLES: '18'

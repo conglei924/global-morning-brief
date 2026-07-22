@@ -2,13 +2,24 @@ name: Global morning brief
 
 on:
   schedule:
-    # 08:30 Asia/Shanghai = 00:30 UTC. GitHub Actions schedules run in UTC.
-    - cron: '30 0 * * *'
+    # Retry hourly from 08:30 through 23:30 Asia/Shanghai. The daily marker
+    # ensures only the first successful run sends mail.
+    - cron: '30 0-15 * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: Send even if today's brief is already marked as sent
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
   models: read
+
+concurrency:
+  group: global-morning-brief-daily
+  cancel-in-progress: false
 
 jobs:
   send:
@@ -16,11 +27,33 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check whether today's brief was already sent
+        id: daily
+        shell: bash
+        run: |
+          TODAY="$(TZ=Asia/Shanghai date +%F)"
+          LAST="$(tr -d '\r\n' < .github/morning-brief-last-sent.txt 2>/dev/null || true)"
+          FORCE="${{ inputs.force }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$FORCE" == "true" ]]; then
+            SHOULD_SEND=true
+          elif [[ "$LAST" == "$TODAY" ]]; then
+            SHOULD_SEND=false
+          else
+            SHOULD_SEND=true
+          fi
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "should_send=$SHOULD_SEND" >> "$GITHUB_OUTPUT"
+          echo "Today: $TODAY; last sent: ${LAST:-never}; should send: $SHOULD_SEND"
       - uses: actions/setup-python@v5
+        if: steps.daily.outputs.should_send == 'true'
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
+        if: steps.daily.outputs.should_send == 'true'
       - run: python morning_brief.py
+        if: steps.daily.outputs.should_send == 'true'
         env:
           MAIL_TRANSPORT: gmail_oauth
           MAIL_FORMAT: plain
@@ -33,3 +66,16 @@ jobs:
           GITHUB_MODEL: openai/gpt-4o
           REQUIRE_AI_SUMMARY: 'true'
           MAX_ARTICLES: '18'
+      - name: Record successful delivery
+        if: steps.daily.outputs.should_send == 'true'
+        shell: bash
+        env:
+          TODAY: ${{ steps.daily.outputs.today }}
+        run: |
+          printf '%s\n' "$TODAY" > .github/morning-brief-last-sent.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/morning-brief-last-sent.txt
+          git commit -m "chore: mark morning brief sent $TODAY"
+          git pull --rebase origin main
+          git push origin HEAD:main

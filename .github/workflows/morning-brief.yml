@@ -2,9 +2,8 @@ name: Global morning brief
 
 on:
   schedule:
-    # Retry hourly from 08:30 through 23:30 Asia/Shanghai. The daily marker
-    # ensures only the first successful run sends mail.
-    - cron: '30 0-15 * * *'
+    # Run once daily at 08:30 Asia/Shanghai.
+    - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -63,7 +62,7 @@ jobs:
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_MODEL: openai/gpt-4o
+          GITHUB_MODEL: openai/gpt-4.1
           REQUIRE_AI_SUMMARY: 'true'
           MAX_ARTICLES: '18'
       - name: Record successful delivery

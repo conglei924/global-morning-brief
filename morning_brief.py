@@ -132,7 +132,7 @@ def chinese_summary(articles: list[Article]) -> str | None:
     if not github_token:
         return None
     payload = json.dumps({
-        "model": os.getenv("GITHUB_MODEL", "openai/gpt-4o"),
+        "model": os.getenv("GITHUB_MODEL", "openai/gpt-4.1"),
         "messages": [{"role": "user", "content": f"{prompt}\n\n素材：\n{material}"}],
         "temperature": 0.2,
     }).encode("utf-8")
@@ -143,7 +143,7 @@ def chinese_summary(articles: list[Article]) -> str | None:
         headers={
             "Authorization": f"Bearer {github_token}",
             "Content-Type": "application/json",
-            "Accept": "application/vnd.github+json",
+            "Accept": "application/vnd.github+json",`n            "X-GitHub-Api-Version": "2026-03-10",
             "User-Agent": "global-morning-brief/1.0",
         },
     )

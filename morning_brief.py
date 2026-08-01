@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import feedparser
 from dotenv import load_dotenv
@@ -88,8 +88,11 @@ def deduplicate(articles: list[Article]) -> list[Article]:
     urls: set[str] = set()
     title_tokens: list[set[str]] = []
     for article in sorted(articles, key=lambda a: a.published or datetime.min, reverse=True):
-        tokens = set(re.findall(r"[a-z0-9]+", article.title.lower()))
-        if article.url in urls or any(len(tokens & prior) / max(1, len(tokens | prior)) >= 0.78 for prior in title_tokens):
+        normalized = article.title.lower().replace("ukrainian capital", "kyiv")
+        normalized = re.sub(r"\b(strikes?|attacks?|assaults?)\b", "attack", normalized)
+        normalized = re.sub(r"\b(kills?|killed|dead)\b", "kill", normalized)
+        tokens = {token.rstrip("s") for token in re.findall(r"[a-z0-9]+", normalized)}
+        if article.url in urls or any(len(tokens & prior) / max(1, len(tokens | prior)) >= 0.50 for prior in title_tokens):
             continue
         unique.append(article)
         urls.add(article.url)
@@ -98,63 +101,109 @@ def deduplicate(articles: list[Article]) -> list[Article]:
 
 
 def select_articles(articles: list[Article], maximum: int) -> list[Article]:
-    """Prefer recent stories while preventing one outlet from dominating the digest."""
+    """Prioritize consequential world news and retain outlet diversity."""
+    def score(article: Article) -> int:
+        material = f"{article.title} {article.description}".lower()
+        value = 0
+        groups = [
+            (("war", "military", "attack", "missile", "ceasefire", "nuclear", "sanction"), 7),
+            (("election", "president", "government", "parliament", "minister", "court"), 6),
+            (("economy", "inflation", "trade", "tariff", "market", "central bank", "interest rate"), 6),
+            (("climate", "wildfire", "flood", "earthquake", "hurricane", "disaster"), 6),
+            (("health", "virus", "outbreak", "bird flu", "vaccine"), 6),
+            (("united nations", "nato", "eu ", "diplomatic", "peace deal", "refugee", "migrant"), 5),
+        ]
+        for keywords, weight in groups:
+            if any(keyword in material for keyword in keywords):
+                value += weight
+        if re.search(r"\b(?:killed|dead|wounded|missing)\b", material):
+            value += 3
+        if any(term in material for term in ("restaurant", "football", "fifa", "treehouse", "gangland", "podcast", "travel")):
+            value -= 7
+        return value
+
     selected: list[Article] = []
     per_source: Counter[str] = Counter()
-    for article in articles:
+    ranked = sorted(articles, key=lambda a: (score(a), a.published or datetime.min), reverse=True)
+    for article in ranked:
         if len(selected) == maximum:
             break
-        if per_source[article.source] >= 4:
+        if per_source[article.source] >= 3:
             continue
         selected.append(article)
         per_source[article.source] += 1
     return selected
 
 
-def chinese_summary(articles: list[Article]) -> str | None:
-    key, model = os.getenv("OPENAI_API_KEY"), os.getenv("OPENAI_MODEL")
-    material = "\n".join(
-        f"[{index}] 来源：{a.source}\n标题：{a.title}\n摘要：{a.description}\n链接：{a.url}"
-        for index, a in enumerate(articles, 1)
+def translate_to_chinese(text: str) -> str:
+    """Translate short source text to Chinese without relying on a hosted LLM."""
+    text = clean_text(text)
+    if not text:
+        return ""
+    url = (
+        "https://translate.googleapis.com/translate_a/single"
+        f"?client=gtx&sl=auto&tl=zh-CN&dt=t&q={quote(text[:3500])}"
     )
-    prompt = """你是严谨的国际新闻编辑。仅根据下列新闻标题和摘要，写一份中文全球晨报。
-要求：不补充材料中没有的事实；将相近报道合并为一个议题；只选最重要的 6–10 个议题；每条用 1–2 句中文解释“发生了什么、为什么重要”，不要复述英文标题；若报道相互矛盾要明确写出。开头给出不超过 3 句的“今日要点”。每条末尾标出支撑它的 [编号]，但正文不要放 URL。使用纯文本，不用 Markdown 标记。"""
-    if key and model:
+    request = urllib.request.Request(url, headers={"User-Agent": "global-morning-brief/1.0"})
+    for attempt in range(3):
         try:
-            from openai import OpenAI
-
-            response = OpenAI(api_key=key).responses.create(model=model, input=f"{prompt}\n\n素材：\n{material}")
-            return response.output_text.strip()
+            with urllib.request.urlopen(request, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            translated = "".join(part[0] for part in result[0] if part and part[0])
+            if clean_text(translated):
+                return clean_text(translated)
         except Exception as exc:
-            print(f"OpenAI summary unavailable: {exc}", file=sys.stderr)
-
-    github_token = os.getenv("GITHUB_TOKEN")
-    if not github_token:
-        return None
-    payload = json.dumps({
-        "model": os.getenv("GITHUB_MODEL", "openai/gpt-4.1"),
-        "messages": [{"role": "user", "content": f"{prompt}\n\n素材：\n{material}"}],
-        "temperature": 0.2,
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        "https://models.github.ai/inference/chat/completions",
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {github_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2026-03-10",
-            "User-Agent": "global-morning-brief/1.0",
-        },
+            if attempt == 2:
+                print(f"Primary translation unavailable: {exc}", file=sys.stderr)
+    fallback_url = (
+        "https://api.mymemory.translated.net/get"
+        f"?langpair=en%7Czh-CN&q={quote(text[:450])}"
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(fallback_url, timeout=20) as response:
             result = json.loads(response.read().decode("utf-8"))
-        return result["choices"][0]["message"]["content"].strip()
+        return clean_text(result["responseData"]["translatedText"]) or text
     except Exception as exc:
-        print(f"GitHub Models summary unavailable: {exc}", file=sys.stderr)
-        return None
+        print(f"Fallback translation unavailable: {exc}", file=sys.stderr)
+        return text
+
+
+def why_important(article: Article) -> str:
+    material = f"{article.title} {article.description}".lower()
+    groups = [
+        (("war", "military", "attack", "ceasefire", "nuclear", "sanction"), "这可能影响地区安全、外交关系以及全球能源和市场预期。"),
+        (("election", "president", "government", "parliament", "vote", "court"), "这可能改变政策方向、国内政治格局或对外关系。"),
+        (("economy", "inflation", "trade", "tariff", "market", "bank", "rate"), "这与全球经济、贸易成本和金融市场走向直接相关。"),
+        (("climate", "storm", "flood", "earthquake", "fire", "disaster"), "这关系到人员安全、救灾资源和后续经济损失。"),
+        (("health", "virus", "disease", "vaccine"), "这可能影响公共卫生应对和跨境风险管理。"),
+    ]
+    for keywords, explanation in groups:
+        if any(re.search(rf"\b{re.escape(keyword)}\b", material) for keyword in keywords):
+            return explanation
+    return "这件事可能对相关地区的政策、经济或国际关系产生后续影响。"
+
+
+def chinese_summary(articles: list[Article]) -> str:
+    """Create a readable Chinese digest from authoritative RSS facts."""
+    translated: list[tuple[Article, str, str]] = []
+    for article in articles[:10]:
+        sentences = re.split(r"(?<=[.!?])\s+", clean_text(article.description))
+        facts = " ".join(sentences[:2])[:700] or article.title
+        translated.append((article, translate_to_chinese(article.title), translate_to_chinese(facts)))
+
+    lines = ["今日要点"]
+    for _, title, facts in translated[:3]:
+        lines.append(f"• {title}：{facts}")
+    lines.extend(["", "重点新闻"])
+    for index, (article, title, facts) in enumerate(translated, 1):
+        lines.extend([
+            f"{index}. {title}",
+            facts,
+            f"为什么重要：{why_important(article)}",
+            f"来源：{article.source}｜{article.url}",
+            "",
+        ])
+    return "\n".join(lines).strip()
 
 
 def render_html(articles: list[Article], summary: str | None, failures: list[str]) -> str:
@@ -167,7 +216,7 @@ def render_html(articles: list[Article], summary: str | None, failures: list[str
     failed_html = "" if not failures else f"<p><small>本次未能读取：{html.escape('、'.join(failures))}</small></p>"
     return f"""<!doctype html><html><body style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;max-width:760px;margin:auto">
 <h1>全球晨报 · {today}</h1>{summary_html}<h2>原始报道与来源</h2><ol>{rows}</ol>{failed_html}
-<hr><p><small>仅采集 sources.json 中的白名单媒体；每条链接均回到原报道。AI 摘要仅基于所列素材生成。</small></p></body></html>"""
+<hr><p><small>仅采集 sources.json 中的白名单媒体；中文摘要由原报道标题与摘要自动整理，每条链接均回到原报道。</small></p></body></html>"""
 
 
 def render_text(articles: list[Article], summary: str | None, failures: list[str]) -> str:

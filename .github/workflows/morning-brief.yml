@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: write
-  models: read
 
 concurrency:
   group: global-morning-brief-daily
@@ -61,10 +60,8 @@ jobs:
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_MODEL: openai/gpt-4.1
           REQUIRE_AI_SUMMARY: 'true'
-          MAX_ARTICLES: '18'
+          MAX_ARTICLES: '10'
       - name: Record successful delivery
         if: steps.daily.outputs.should_send == 'true'
         shell: bash

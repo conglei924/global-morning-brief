@@ -143,7 +143,8 @@ def chinese_summary(articles: list[Article]) -> str | None:
         headers={
             "Authorization": f"Bearer {github_token}",
             "Content-Type": "application/json",
-            "Accept": "application/vnd.github+json",`n            "X-GitHub-Api-Version": "2026-03-10",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2026-03-10",
             "User-Agent": "global-morning-brief/1.0",
         },
     )

@@ -208,14 +208,17 @@ def chinese_summary(articles: list[Article]) -> str:
 
 def render_html(articles: list[Article], summary: str | None, failures: list[str]) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
-    rows = "".join(
-        f'<li><a href="{html.escape(a.url, quote=True)}">{html.escape(a.title)}</a> <small>— {html.escape(a.source)}</small></li>'
-        for a in articles
-    )
-    summary_html = "".join(f"<p>{html.escape(line)}</p>" for line in summary.splitlines() if line.strip()) if summary else "<p><em>未配置 AI 摘要，以下为原始头条。</em></p>"
+    if summary:
+        content_html = "".join(f"<p>{html.escape(line)}</p>" for line in summary.splitlines() if line.strip())
+    else:
+        rows = "".join(
+            f'<li><a href="{html.escape(a.url, quote=True)}">{html.escape(a.title)}</a> <small>— {html.escape(a.source)}</small></li>'
+            for a in articles
+        )
+        content_html = f"<p><em>以下为权威媒体原始头条。</em></p><ol>{rows}</ol>"
     failed_html = "" if not failures else f"<p><small>本次未能读取：{html.escape('、'.join(failures))}</small></p>"
     return f"""<!doctype html><html><body style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;max-width:760px;margin:auto">
-<h1>全球晨报 · {today}</h1>{summary_html}<h2>原始报道与来源</h2><ol>{rows}</ol>{failed_html}
+<h1>全球晨报 · {today}</h1>{content_html}{failed_html}
 <hr><p><small>仅采集 sources.json 中的白名单媒体；中文摘要由原报道标题与摘要自动整理，每条链接均回到原报道。</small></p></body></html>"""
 
 
@@ -224,13 +227,10 @@ def render_text(articles: list[Article], summary: str | None, failures: list[str
     lines = [f"全球晨报 · {today}", ""]
     if summary:
         lines.extend(summary.splitlines())
-        lines.extend(["", "核验来源（可选阅读）："])
-        for index, article in enumerate(articles, 1):
-            lines.append(f"[{index}] {article.source}：{article.url}")
     else:
         lines.extend(["以下为权威媒体原始头条与链接。", ""])
-    for index, article in enumerate(articles, 1):
-        lines.extend([f"{index}. {article.title}", f"   来源：{article.source}", f"   链接：{article.url}"])
+        for index, article in enumerate(articles, 1):
+            lines.extend([f"{index}. {article.title}", f"   来源：{article.source}", f"   链接：{article.url}"])
     if failures:
         lines.extend(["", f"本次未能读取：{'、'.join(failures)}"])
     lines.extend(["", "仅采集白名单媒体；请通过原文链接核验报道。"])

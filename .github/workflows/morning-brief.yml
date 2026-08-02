@@ -2,8 +2,11 @@ name: Global morning brief
 
 on:
   schedule:
-    # Run once daily at 08:30 Asia/Shanghai.
+    # Staggered cloud triggers at 08:30, 08:47 and 09:04 Asia/Shanghai.
+    # The last-sent marker below guarantees at most one successful email per day.
     - cron: '30 0 * * *'
+    - cron: '47 0 * * *'
+    - cron: '4 1 * * *'
   workflow_dispatch:
     inputs:
       force:

@@ -268,7 +268,7 @@ def why_important(article: Article) -> str:
 def chinese_summary(articles: list[Article]) -> str:
     """Create a readable Chinese digest from authoritative RSS facts."""
     translated: list[tuple[Article, str, str]] = []
-    for article in articles[:10]:
+    for article in articles:
         sentences = re.split(r"(?<=[.!?])\s+", clean_text(article.description))
         facts = " ".join(sentences[:2])[:700] or article.title
         translated.append((article, translate_to_chinese(article.title), translate_to_chinese(facts)))
@@ -445,7 +445,7 @@ def main() -> int:
         print("Gmail OAuth authorization completed.")
         return 0
     articles, failures = fetch_articles(load_sources())
-    selected = select_articles(articles, int(os.getenv("MAX_ARTICLES", "10")))
+    selected = select_articles(articles, int(os.getenv("MAX_ARTICLES", "13")))
     if not selected:
         raise RuntimeError("No recent articles were collected; email was not sent.")
     summary = chinese_summary(selected)

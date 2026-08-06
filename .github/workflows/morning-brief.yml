@@ -2,9 +2,12 @@ name: Global morning brief
 
 on:
   schedule:
-    # Retry hourly from 08:30 through 23:30 Asia/Shanghai.
-    # The last-sent marker below guarantees at most one successful email per day.
-    - cron: '30 0-15 * * *'
+    # Retry during the China morning only: 08:30, 08:50, 09:10,
+    # 09:30, 10:00 and 10:30 Asia/Shanghai. The time guard below
+    # prevents a heavily delayed GitHub run from sending after midnight.
+    - cron: '30,50 0 * * *'
+    - cron: '10,30 1 * * *'
+    - cron: '0,30 2 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -33,10 +36,13 @@ jobs:
         shell: bash
         run: |
           TODAY="$(TZ=Asia/Shanghai date +%F)"
+          LOCAL_HOUR="$(TZ=Asia/Shanghai date +%H)"
           LAST="$(tr -d '\r\n' < .github/morning-brief-last-sent.txt 2>/dev/null || true)"
           FORCE="${{ inputs.force }}"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$FORCE" == "true" ]]; then
             SHOULD_SEND=true
+          elif (( 10#$LOCAL_HOUR < 8 || 10#$LOCAL_HOUR >= 12 )); then
+            SHOULD_SEND=false
           elif [[ "$LAST" == "$TODAY" ]]; then
             SHOULD_SEND=false
           else

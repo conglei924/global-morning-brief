@@ -1,33 +1,80 @@
 [
   {
-    "name": "BBC News — World",
-    "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "tier": "public broadcaster"
+    "name": "Reuters",
+    "url": "https://news.google.com/rss/search?q=when%3A2d%20site%3Areuters.com%20China&hl=en-US&gl=US&ceid=US%3Aen",
+    "region": "china",
+    "tier": "international news agency"
   },
   {
-    "name": "Deutsche Welle — World",
-    "url": "https://rss.dw.com/xml/rss-en-world",
-    "tier": "public international broadcaster"
+    "name": "Bloomberg",
+    "url": "https://news.google.com/rss/search?q=when%3A2d%20site%3Abloomberg.com%20China&hl=en-US&gl=US&ceid=US%3Aen",
+    "region": "china",
+    "tier": "global financial news"
   },
   {
-    "name": "France 24 — World",
-    "url": "https://www.france24.com/en/rss",
-    "tier": "public international broadcaster"
+    "name": "Financial Times",
+    "url": "https://www.ft.com/china?format=rss",
+    "region": "china",
+    "tier": "global financial newspaper"
   },
   {
-    "name": "The Guardian — World",
-    "url": "https://www.theguardian.com/world/rss",
+    "name": "South China Morning Post",
+    "url": "https://www.scmp.com/rss/4/feed",
+    "region": "china",
+    "tier": "established China-focused newspaper"
+  },
+  {
+    "name": "Reuters",
+    "url": "https://news.google.com/rss/search?q=when%3A1d%20site%3Areuters.com&hl=en-US&gl=US&ceid=US%3Aen",
+    "region": "global",
+    "tier": "international news agency"
+  },
+  {
+    "name": "Bloomberg",
+    "url": "https://feeds.bloomberg.com/markets/news.rss",
+    "region": "global",
+    "tier": "global financial news"
+  },
+  {
+    "name": "Bloomberg",
+    "url": "https://feeds.bloomberg.com/politics/news.rss",
+    "region": "global",
+    "tier": "global financial news"
+  },
+  {
+    "name": "Financial Times",
+    "url": "https://www.ft.com/world?format=rss",
+    "region": "global",
+    "tier": "global financial newspaper"
+  },
+  {
+    "name": "The New York Times",
+    "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "region": "global",
     "tier": "established newspaper"
   },
   {
-    "name": "NPR — World",
-    "url": "https://feeds.npr.org/1004/rss.xml",
+    "name": "Associated Press",
+    "url": "https://news.google.com/rss/search?q=when%3A1d%20site%3Aapnews.com&hl=en-US&gl=US&ceid=US%3Aen",
+    "region": "global",
+    "tier": "international news agency"
+  },
+  {
+    "name": "BBC News",
+    "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "region": "global",
     "tier": "public broadcaster"
   },
   {
-    "name": "Al Jazeera — All News",
+    "name": "The Guardian",
+    "url": "https://www.theguardian.com/world/rss",
+    "region": "global",
+    "tier": "established newspaper"
+  },
+  {
+    "name": "Al Jazeera",
     "url": "https://www.aljazeera.com/xml/rss/all.xml",
+    "region": "global",
     "tier": "international broadcaster"
   }
 ]
-

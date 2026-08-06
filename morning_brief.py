@@ -13,8 +13,8 @@ import urllib.error
 import urllib.request
 import sys
 from collections import Counter
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Iterable
@@ -34,11 +34,29 @@ class Article:
     url: str
     published: datetime | None
     description: str
+    region: str = "global"
+
+
+CHINA_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
+
+
+def china_now() -> datetime:
+    return datetime.now(CHINA_TZ)
 
 
 def clean_text(value: str) -> str:
     value = re.sub(r"<[^>]+>", " ", value or "")
     return re.sub(r"\s+", " ", value).strip()
+
+
+def clean_headline(value: str) -> str:
+    value = clean_text(value)
+    return re.sub(
+        r"\s+-\s+(?:Reuters|Bloomberg(?:\.com)?|AP News|The Associated Press)\s*$",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    )
 
 
 def canonical_url(url: str) -> str:
@@ -71,14 +89,21 @@ def fetch_articles(sources: Iterable[dict[str, str]]) -> tuple[list[Article], li
             failures.append(source["name"])
             continue
         for entry in feed.entries[:25]:
-            title = clean_text(entry.get("title", ""))
+            title = clean_headline(entry.get("title", ""))
             url = entry.get("link", "")
             if not title or not url:
                 continue
             published = entry_date(entry)
             if published and published < cutoff:
                 continue
-            articles.append(Article(source["name"], title, canonical_url(url), published, clean_text(entry.get("summary", ""))))
+            articles.append(Article(
+                source["name"],
+                title,
+                canonical_url(url),
+                published,
+                clean_headline(entry.get("summary", "")),
+                source.get("region", "global"),
+            ))
     return deduplicate(articles), failures
 
 
@@ -101,10 +126,33 @@ def deduplicate(articles: list[Article]) -> list[Article]:
 
 
 def select_articles(articles: list[Article], maximum: int) -> list[Article]:
-    """Prioritize consequential world news and retain outlet diversity."""
+    """Return about seven global headlines plus three China headlines."""
+    low_signal_terms = (
+        "restaurant", "football", "fifa", "treehouse", "gangland", "podcast",
+        "travel", "businessweek daily", "newsletter", "morning briefing",
+        "wednesday briefing", "live updates", "sesame street", "opinion:",
+        "vacation", "holiday hotspot", "travel destination",
+    )
+    china_pattern = re.compile(
+        r"\b(?:china|chinese|beijing|shanghai|shenzhen|hong kong|taiwan|"
+        r"xi jinping|yuan|renminbi|pla)\b",
+        re.IGNORECASE,
+    )
+
     def score(article: Article) -> int:
         material = f"{article.title} {article.description}".lower()
-        value = 0
+        source_weight = {
+            "Reuters": 8,
+            "Bloomberg": 7,
+            "Financial Times": 6,
+            "The New York Times": 5,
+            "Associated Press": 5,
+            "BBC News": 4,
+            "South China Morning Post": 4,
+            "The Guardian": 3,
+            "Al Jazeera": 3,
+        }
+        value = source_weight.get(article.source, 2)
         groups = [
             (("war", "military", "attack", "missile", "ceasefire", "nuclear", "sanction"), 7),
             (("election", "president", "government", "parliament", "minister", "court"), 6),
@@ -118,21 +166,55 @@ def select_articles(articles: list[Article], maximum: int) -> list[Article]:
                 value += weight
         if re.search(r"\b(?:killed|dead|wounded|missing)\b", material):
             value += 3
-        if any(term in material for term in ("restaurant", "football", "fifa", "treehouse", "gangland", "podcast", "travel")):
+        if any(term in material for term in low_signal_terms):
             value -= 7
         return value
 
-    selected: list[Article] = []
-    per_source: Counter[str] = Counter()
-    ranked = sorted(articles, key=lambda a: (score(a), a.published or datetime.min), reverse=True)
-    for article in ranked:
-        if len(selected) == maximum:
-            break
-        if per_source[article.source] >= 3:
-            continue
-        selected.append(article)
-        per_source[article.source] += 1
-    return selected
+    def take(candidates: list[Article], count: int, required_sources: tuple[str, ...] = ()) -> list[Article]:
+        chosen: list[Article] = []
+        per_source: Counter[str] = Counter()
+        headline_candidates = [
+            article for article in candidates
+            if not any(term in f"{article.title} {article.description}".lower() for term in low_signal_terms)
+        ]
+        ranked = sorted(headline_candidates or candidates, key=lambda a: (score(a), a.published or datetime.min), reverse=True)
+        for source in required_sources:
+            preferred = next((article for article in ranked if article.source == source and article not in chosen), None)
+            if preferred and len(chosen) < count:
+                chosen.append(preferred)
+                per_source[preferred.source] += 1
+        for article in ranked:
+            if len(chosen) == count:
+                break
+            if article in chosen:
+                continue
+            if per_source[article.source] >= 2:
+                continue
+            chosen.append(article)
+            per_source[article.source] += 1
+        return chosen
+
+    china_target = min(3, maximum)
+    china_candidates = [
+        article for article in articles
+        if article.region == "china" or china_pattern.search(f"{article.title} {article.description}")
+    ]
+    china_items = take(
+        china_candidates,
+        china_target,
+        ("Reuters", "Bloomberg"),
+    )
+    china_items = [replace(article, region="china") for article in china_items]
+    china_urls = {article.url for article in china_items}
+    global_items = take(
+        [a for a in articles if a.url not in china_urls and a.region != "china"],
+        maximum - len(china_items),
+        ("Reuters", "Bloomberg"),
+    )
+    if len(global_items) + len(china_items) < maximum:
+        used_urls = {a.url for a in global_items + china_items}
+        global_items.extend(take([a for a in articles if a.url not in used_urls], maximum - len(global_items) - len(china_items)))
+    return global_items + china_items
 
 
 def translate_to_chinese(text: str) -> str:
@@ -194,20 +276,27 @@ def chinese_summary(articles: list[Article]) -> str:
     lines = ["今日要点"]
     for _, title, facts in translated[:3]:
         lines.append(f"• {title}：{facts}")
-    lines.extend(["", "重点新闻"])
-    for index, (article, title, facts) in enumerate(translated, 1):
-        lines.extend([
-            f"{index}. {title}",
-            facts,
-            f"为什么重要：{why_important(article)}",
-            f"来源：{article.source}｜{article.url}",
-            "",
-        ])
+
+    def append_section(heading: str, items: list[tuple[Article, str, str]]) -> None:
+        if not items:
+            return
+        lines.extend(["", heading])
+        for index, (article, title, facts) in enumerate(items, 1):
+            lines.extend([
+                f"{index}. {title}",
+                facts,
+                f"为什么重要：{why_important(article)}",
+                f"来源：{article.source}｜{article.url}",
+                "",
+            ])
+
+    append_section("全球头条", [item for item in translated if item[0].region != "china"])
+    append_section("中国头条", [item for item in translated if item[0].region == "china"])
     return "\n".join(lines).strip()
 
 
 def render_html(articles: list[Article], summary: str | None, failures: list[str]) -> str:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = china_now().strftime("%Y-%m-%d")
     if summary:
         content_html = "".join(f"<p>{html.escape(line)}</p>" for line in summary.splitlines() if line.strip())
     else:
@@ -223,7 +312,7 @@ def render_html(articles: list[Article], summary: str | None, failures: list[str
 
 
 def render_text(articles: list[Article], summary: str | None, failures: list[str]) -> str:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = china_now().strftime("%Y-%m-%d")
     lines = [f"全球晨报 · {today}", ""]
     if summary:
         lines.extend(summary.splitlines())
@@ -356,7 +445,7 @@ def main() -> int:
         print("Gmail OAuth authorization completed.")
         return 0
     articles, failures = fetch_articles(load_sources())
-    selected = select_articles(articles, int(os.getenv("MAX_ARTICLES", "18")))
+    selected = select_articles(articles, int(os.getenv("MAX_ARTICLES", "10")))
     if not selected:
         raise RuntimeError("No recent articles were collected; email was not sent.")
     summary = chinese_summary(selected)
@@ -369,7 +458,7 @@ def main() -> int:
         output.write_text(body, encoding="utf-8")
         print(f"Preview written to {output}")
     else:
-        send_email(f"全球晨报 · {datetime.now():%Y-%m-%d}", body, text_body)
+        send_email(f"全球晨报 · {china_now():%Y-%m-%d}", body, text_body)
         print(f"Sent {len(selected)} source-linked headlines.")
     return 0
 
